@@ -1819,8 +1819,8 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                     segEnd = IDAAPI_SegEnd(mem_addr)
                     endAligned = UEMU_HELPERS.ALIGN_PAGE_UP(segEnd)
                     uemu_log("* seg [%X:%X]" % (segStart, segEnd))
-                    self.map_memory(segStart, endAligned - segStart)
-                    self.copy_inited_data(segStart, segEnd) 
+                    self.unicornEngine.map_memory(segStart, endAligned - segStart)
+                    self.unicornEngine.copy_inited_data(segStart, segEnd) 
                     return
 
                 if not self.unicornEngine.is_memory_mapped(mem_addr):
