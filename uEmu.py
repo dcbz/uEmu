@@ -1192,6 +1192,15 @@ class uEmuUnicornEngine(object):
     def hook_mem_invalid(self, uc, access, address, size, value, user_data):
         def result_handler():
             uemu_log("! <M> Missing memory at 0x%x, data size = %u, data value = 0x%x" %(address, size, value))
+            if(IDAAPI_SegStart(address) != -1): # XXX nemo this means the mapping is in IDA and we should JIT load it.
+                uemu_log("Mapping segment...")
+                segStart = IDAAPI_SegStart(address)
+                segEnd = IDAAPI_SegEnd(address)
+                endAligned = UEMU_HELPERS.ALIGN_PAGE_UP(segEnd)
+                uemu_log("* seg [%X:%X]" % (segStart, segEnd))
+                self.map_memory(segStart, endAligned - segStart)
+                self.copy_inited_data(segStart, segEnd) 
+                return True
             while True:
                 ok = IDAAPI_AskYN(1, "Memory [%X] is not mapped!\nDo you want to map it?\n   YES - Load Binary\n   NO - Fill page with zeroes\n   Cancel - Stop Emulation" % (address))
                 if ok == 0:
@@ -1281,30 +1290,39 @@ class uEmuUnicornEngine(object):
                 return
 
             uemu_log("Mapping segments...")
+            segStart = IDAAPI_SegStart(address)
+            segEnd = IDAAPI_SegEnd(address)
+            endAligned = UEMU_HELPERS.ALIGN_PAGE_UP(segEnd)
+            uemu_log("* seg [%X:%X]" % (segStart, segEnd))
+            self.map_memory(segStart, endAligned - segStart)
+            self.copy_inited_data(segStart, segEnd) 
 
+            #     uemu_log("* seg [%X:%X]" % (segStart, segEnd))
+            # XXX nemo: This is where all the regions in the IDB are loaded initially. Going to only map the one responsible for 
+            # executing PC and then map the rest JIT as needed.
             # get all segments and merge neighbours
-            lastAddress = BADADDR
-            for segEA in Segments():
-                segStart = IDAAPI_SegStart(segEA)
-                segEnd = IDAAPI_SegEnd(segEA)
-                endAligned = UEMU_HELPERS.ALIGN_PAGE_UP(segEnd)
+            # lastAddress = BADADDR
+            # for segEA in Segments():
+            #     segStart = IDAAPI_SegStart(segEA)
+            #     segEnd = IDAAPI_SegEnd(segEA)
+            #     endAligned = UEMU_HELPERS.ALIGN_PAGE_UP(segEnd)
 
-                # merge with provious if
-                # - we have mapped some segments already
-                # - aligned old segment is overlapping new segment
-                # otherwise map new
+            #     # merge with provious if
+            #     # - we have mapped some segments already
+            #     # - aligned old segment is overlapping new segment
+            #     # otherwise map new
 
-                uemu_log("* seg [%X:%X]" % (segStart, segEnd))
-                if lastAddress != BADADDR and lastAddress > segStart:
-                    if lastAddress < segEnd:
-                        self.map_memory(lastAddress, endAligned - lastAddress)
-                else:
-                    self.map_memory(segStart, endAligned - segStart)
+            #     uemu_log("* seg [%X:%X]" % (segStart, segEnd))
+            #     if lastAddress != BADADDR and lastAddress > segStart:
+            #         if lastAddress < segEnd:
+            #             self.map_memory(lastAddress, endAligned - lastAddress)
+            #     else:
+            #         self.map_memory(segStart, endAligned - segStart)
 
-                # copy initialized bytes
-                self.copy_inited_data(segStart, segEnd)                
+            #     # copy initialized bytes
+            #     self.copy_inited_data(segStart, segEnd)                
 
-                lastAddress = endAligned
+            #     lastAddress = endAligned
 
             if self.owner.trace_inst():
                 bytes = IDAAPI_GetBytes(self.pc, IDAAPI_NextHead(self.pc) - self.pc)
@@ -1795,6 +1813,16 @@ class uEmuPlugin(plugin_t, UI_Hooks):
             mem_cmnt = memRangeDlg.mem_cmnt.value
 
             if mem_addr not in self.memoryViews:
+                if(IDAAPI_SegStart(mem_addr) != -1): # XXX nemo this means the mapping is in IDA and we should JIT load it.
+                    uemu_log("Mapping segment...")
+                    segStart = IDAAPI_SegStart(mem_addr)
+                    segEnd = IDAAPI_SegEnd(mem_addr)
+                    endAligned = UEMU_HELPERS.ALIGN_PAGE_UP(segEnd)
+                    uemu_log("* seg [%X:%X]" % (segStart, segEnd))
+                    self.map_memory(segStart, endAligned - segStart)
+                    self.copy_inited_data(segStart, segEnd) 
+                    return
+
                 if not self.unicornEngine.is_memory_mapped(mem_addr):
                     ok = IDAAPI_AskYN(1, "Memory [%X:%X] is not mapped!\nDo you want to map it?\n   YES - Load Binary\n   NO - Fill page with zeroes\n   Cancel - Close dialog" % (mem_addr, mem_addr + mem_size))
                     if ok == 0:
