@@ -77,7 +77,7 @@ else:
 
 # PyQt
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import (QPushButton, QHBoxLayout)
+from PyQt5.QtWidgets import (QPushButton, QHBoxLayout, QLineEdit,QTextEdit, QVBoxLayout)
 
 # Unicorn SDK
 from unicorn import *
@@ -1485,6 +1485,7 @@ class uEmuPlugin(plugin_t, UI_Hooks):
         "trace_inst"    : False,
     }
 
+    consoleView = None
     controlView = None
     emuInitView = None
     cpuContextView = None
@@ -1499,6 +1500,93 @@ class uEmuPlugin(plugin_t, UI_Hooks):
         uemu_log("Init plugin")
         return PLUGIN_KEEP
 
+    def console_window(self):
+        # XXX nemo This is a console window for interacting with the emulator
+        # in an interactive shell.
+        # Commands as follows:
+        # === uEmuControlView
+
+        class uEmuConsoleWindow(PluginForm):
+            def __init__(self, owner):
+                self.owner = owner
+                PluginForm.__init__(self)
+
+            def OnCreate(self, form):
+                self.parent = self.FormToPyQtWidget(form)
+                self.PopulateForm()
+
+            def PopulateForm(self):
+                self.prompt = QLineEdit()
+                self.output = QTextEdit("uEmu Debugger") 
+                sb = self.output.verticalScrollBar()
+                sb.setValue(sb.maximum())
+                self.prompt.setAlignment(QtCore.Qt.AlignBottom)
+                self.output.setAlignment(QtCore.Qt.AlignTop)
+                self.output.setReadOnly(True)
+                self.prompt.returnPressed.connect(self.SubmitCommand)
+ 
+                hbox = QVBoxLayout()
+
+                hbox.setAlignment(QtCore.Qt.AlignTop)
+                hbox.addWidget(self.output)
+                hbox.addWidget(self.prompt)
+                
+
+                self.parent.setLayout(hbox) 
+            
+            def cmd_help(self): # help message
+                text =  "[ uEmu Debugger Help ]\n"
+                text += "Commands:\n"
+                text += "\thelp  - this help screen.\n"
+                text += "\tclear - clear the screen\n"
+                text += "\tstart - start emulator at ScreenEA()\n"
+                text += "\tstep  - step a single instruction\n"
+                text += "\trun   -  run until a fault or breakpoint\n"
+                self.output.append(text)
+
+            def cmd_clear(self): # clear the output box
+                self.output.setText("")
+
+            def cmd_run(self): # run emulator
+                self.output.append("Running emulator...\n")
+                self.owner.emu_run()
+
+            def cmd_step(self): # single step
+                self.output.append("Stepping\n")
+                self.owner.emu_step()
+            def cmd_start(self): # start emulator
+                self.output.append("Starting emulator...\n")
+                self.owner.emu_start()
+        
+            def SubmitCommand(self):
+                cmd = self.prompt.text()
+                self.prompt.setText("")
+                cmdarr = []
+                if(cmd.find(" ")):
+                    cmdarr = cmd.split(" ")
+                else:
+                    cmdarr = [cmd]
+                print "Received command: %s" % cmdarr[0]
+
+                cmddispatch = {
+                    "help"  : self.cmd_help,
+                    "clear" : self.cmd_clear,
+                    "start" : self.cmd_start,
+                    "run"   : self.cmd_run,
+                    "step"  : self.cmd_step
+                }
+                if(cmddispatch.has_key(cmdarr[0])):
+                    cmddispatch[cmdarr[0]]() # dispatch menu item
+                else:
+                    self.output.append("error: Invalid command. %s \"help\" for help\n" % cmdarr[0])
+                
+                
+                
+
+        if self.consoleView is None:
+            self.consoleView = uEmuConsoleWindow(self)
+            self.consoleView.Show("uEmu Console Window")
+    
     def run(self, arg):
         uemu_log("Run plugin with (%d)" % arg)
 
@@ -1585,6 +1673,7 @@ class uEmuPlugin(plugin_t, UI_Hooks):
     def register_menu_actions(self):
         self.MENU_ITEMS.append(UEMU_HELPERS.MenuItem(UEMU_PLUGIN_NAME + ":start",             self.emu_start,             "Start",                      "Start emulation",           None,                   True    ))
         self.MENU_ITEMS.append(UEMU_HELPERS.MenuItem(UEMU_PLUGIN_NAME + ":run",               self.emu_run,               "Run",                        "Run",                       None,                   True    ))
+        self.MENU_ITEMS.append(UEMU_HELPERS.MenuItem(UEMU_PLUGIN_NAME + ":console",           self.console_window,        "Console",                    "Console",                   None,                   True    ))
         self.MENU_ITEMS.append(UEMU_HELPERS.MenuItem(UEMU_PLUGIN_NAME + ":step",              self.emu_step,              "Step",                       "Step to next instruction",  "SHIFT+CTRL+ALT+S",     True    ))
         self.MENU_ITEMS.append(UEMU_HELPERS.MenuItem(UEMU_PLUGIN_NAME + ":stop",              self.emu_stop,              "Stop",                       "Stop emulation",            None,                   True    ))
         self.MENU_ITEMS.append(UEMU_HELPERS.MenuItem(UEMU_PLUGIN_NAME + ":reset",             self.emu_reset,             "Reset",                      "Reset emulation",           None,                   True    ))
@@ -1898,3 +1987,4 @@ if UEMU_USE_AS_SCRIPT:
         uEmu = uEmuPlugin()
         uEmu.init()
         uEmu.run()
+
