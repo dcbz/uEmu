@@ -18,6 +18,7 @@ import threading
 import json
 import os
 import collections
+import struct
 
 # IDA Python SDK
 from idaapi import *
@@ -1049,24 +1050,29 @@ class uEmuUnicornEngine(object):
             memEnd = address + size
             memStartAligned = UEMU_HELPERS.ALIGN_PAGE_DOWN(memStart)
             memEndAligned = UEMU_HELPERS.ALIGN_PAGE_UP(memEnd)
-            uemu_log("  map [%X:%X] -> [%X:%X]" % (memStart, memEnd - 1, memStartAligned, memEndAligned - 1))
+            ret = "  map [%X:%X] -> [%X:%X]" % (memStart, memEnd - 1, memStartAligned, memEndAligned - 1)
+            uemu_log(ret)
             self.mu.mem_map(memStartAligned, memEndAligned - memStartAligned)
         except UcError as e:
             uemu_log("! <U> %s" % e)
+        return ret
 
     def map_empty(self, address, size):
         self.map_memory(address, size)
         self.mu.mem_write(UEMU_HELPERS.ALIGN_PAGE_DOWN(address), "\x00" * UEMU_CONFIG.UnicornPageSize)
 
-    def map_binary(self, address, size):
+    def map_binary(self, address, size, binaryFile=None):
         binMapDlg = uEmuMapBinaryFileDialog(address)
         binMapDlg.Compile()
         
         ok = binMapDlg.Execute()
         if ok != 1:
             return False
-
-        bin_name = binMapDlg.file_name.value
+        bin_name = ""
+        if(binaryFile):
+            bin_name = binaryFile
+        else:
+            bin_name = binMapDlg.file_name.value
         with open(bin_name, 'rb') as file:
             file.seek(0, 2)
             file_size = file.tell()
@@ -1534,30 +1540,101 @@ class uEmuPlugin(plugin_t, UI_Hooks):
 
                 self.parent.setLayout(hbox) 
             
-            def cmd_help(self): # help message
-                text =  "[ uEmu Debugger Help ]\n"
-                text += "Commands:\n"
-                text += "\thelp  - this help screen.\n"
-                text += "\tclear - clear the screen\n"
-                text += "\tstart - start emulator at ScreenEA()\n"
-                text += "\tstep  - step a single instruction\n"
-                text += "\trun   -  run until a fault or breakpoint\n"
-                self.output.append(text)
+            def log(self,msg):
+                self.output.append(msg)
 
-            def cmd_clear(self): # clear the output box
+            def cmd_help(self,args=[]): # help message
+                text =  "[ uEmu Debugger Help ]\n\n"
+                text += "Commands:\n"
+                text += "\thelp   - this help screen.\n"
+                text += "\tclear  - clear the screen\n"
+                text += "\tstart  - start emulator at ScreenEA()\n"
+                text += "\tstep   - step a single instruction\n"
+                text += "\trun    - run until a fault or breakpoint\n"
+                text += "\treset  - reset the emulator\n"
+                text += "\tstop   - stop the emulator\n"
+                text += "\tshowpc - jump to pc in the ida view\n"
+                text += "\tmem    - get list of mapped regions\n"
+                text += "\tmm     - map memory at address and fill with \\x00s.\n"
+                text += "\t\tusage: mm <address> <size>\n"
+                text += "\twd     - write dword (or any sized numerical value) to memory\n"
+                text += "\t\tusage: wd <address> <dword>\n"
+                self.log(text)
+
+            def cmd_clear(self,args=[]): # clear the output box
                 self.output.setText("")
 
-            def cmd_run(self): # run emulator
-                self.output.append("Running emulator...\n")
+            def cmd_run(self,args=[]): # run emulator
+                self.log("Running emulator...\n")
                 self.owner.emu_run()
 
-            def cmd_step(self): # single step
-                self.output.append("Stepping\n")
+            def cmd_step(self,args=[]): # single step
+                self.log("Stepping\n")
                 self.owner.emu_step()
-            def cmd_start(self): # start emulator
-                self.output.append("Starting emulator...\n")
+            
+            def cmd_start(self,args=[]): # start emulator
+                self.log("Starting emulator...\n")
                 self.owner.emu_start()
         
+            def cmd_reset(self,args=[]): # reset emulator
+                self.log("Ressetting emulator")
+                self.owner.emu_reset()
+
+            def cmd_stop(self,args=[]): # stop emulator
+                self.log("Stopping emulator")
+                self.owner.emu_stop()
+
+            def cmd_showpc(self,args=[]): # show pc in ida view
+                self.log("Jumping to pc in ida view.")
+                self.owner.jump_to_pc()
+
+            def cmd_get_mapped_memory(self,args=[]): # get memory
+                if not self.owner.unicornEngine.is_active():
+                    self.log("Emulator is not active")
+                    return
+
+                if self.owner.unicornEngine.is_running():
+                    self.log("Emulator is not running")
+                    return
+
+                print(self.owner.unicornEngine.get_mapped_memory()) # XXX replace with self.log once we untangle this data
+            
+            def cmd_map_memory(self,args=[]): # create a mapping (filled with 0s)
+                if not self.owner.unicornEngine.is_active():
+                    self.log("Emulator is not active")
+                    return
+
+                if self.owner.unicornEngine.is_running():
+                    self.log("Emulator is not running")
+                    return
+                
+                if(len(args) != 3):
+                    self.log("usage: mm <0xaddress> <0xlength>")
+                    return
+
+                address = int(args[1],16)
+                size = int(args[2],16)
+                self.log(self.owner.unicornEngine.map_memory(address,size))
+
+            def cmd_write_dword(self,args=[]): # write dword to memory at address
+                if not self.owner.unicornEngine.is_active():
+                    self.log("Emulator is not active")
+                    return
+
+                if self.owner.unicornEngine.is_running():
+                    self.log("Emulator is not running")
+                    return
+
+                if(len(args) != 3):
+                    self.log("usage: wd <0xaddress> <0xlength>")
+                    return
+
+                address = int(args[1],16)
+                dword = int(args[2],16)                
+
+                self.owner.unicornEngine.mu.mem_write(address, struct.pack("<L",dword))
+                self.log("Wrote dword 0x%x to 0x%lx" % (dword,address))
+
             def SubmitCommand(self):
                 cmd = self.prompt.text()
                 self.prompt.setText("")
@@ -1567,22 +1644,25 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                 else:
                     cmdarr = [cmd]
                 print "Received command: %s" % cmdarr[0]
-
+                self.log(cmd)
                 cmddispatch = {
                     "help"  : self.cmd_help,
                     "clear" : self.cmd_clear,
                     "start" : self.cmd_start,
                     "run"   : self.cmd_run,
-                    "step"  : self.cmd_step
+                    "step"  : self.cmd_step,
+                    "reset" : self.cmd_reset,
+                    "stop"  : self.cmd_stop,
+                    "showpc": self.cmd_showpc,
+                    "mem"   : self.cmd_get_mapped_memory,
+                    "mm"    : self.cmd_map_memory,
+                    "wd"    : self.cmd_write_dword
                 }
                 if(cmddispatch.has_key(cmdarr[0])):
-                    cmddispatch[cmdarr[0]]() # dispatch menu item
+                    cmddispatch[cmdarr[0]](cmdarr) # dispatch menu item
                 else:
                     self.output.append("error: Invalid command. %s \"help\" for help\n" % cmdarr[0])
                 
-                
-                
-
         if self.consoleView is None:
             self.consoleView = uEmuConsoleWindow(self)
             self.consoleView.Show("uEmu Console Window")
