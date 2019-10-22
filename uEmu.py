@@ -78,7 +78,7 @@ else:
 
 # PyQt
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import (QPushButton, QHBoxLayout, QLineEdit,QTextEdit, QVBoxLayout)
+from PyQt5.QtWidgets import (QPushButton, QHBoxLayout, QLineEdit,QTextEdit, QVBoxLayout, QComboBox)
 
 # Unicorn SDK
 from unicorn import *
@@ -1522,14 +1522,15 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                 self.PopulateForm()
 
             def PopulateForm(self):
-                self.prompt = QLineEdit()
+                self.prompt = QComboBox() #QLineEdit()
                 self.output = QTextEdit("uEmu Debugger") 
                 sb = self.output.verticalScrollBar()
                 sb.setValue(sb.maximum())
-                self.prompt.setAlignment(QtCore.Qt.AlignBottom)
-                self.output.setAlignment(QtCore.Qt.AlignTop)
+                self.prompt.setEditable(True)
+                #self.prompt.setAlignment(QtCore.Qt.AlignBottom)
+                #self.output.setAlignment(QtCore.Qt.AlignTop)
                 self.output.setReadOnly(True)
-                self.prompt.returnPressed.connect(self.SubmitCommand)
+                self.prompt.lineEdit().returnPressed.connect(self.SubmitCommand)
  
                 hbox = QVBoxLayout()
 
@@ -1559,6 +1560,8 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                 text += "\t\tusage: mm <address> <size>\n"
                 text += "\twd     - write dword (or any sized numerical value) to memory\n"
                 text += "\t\tusage: wd <address> <dword>\n"
+                text += "\tdd     - dump dwords from memory\n"
+                text += "\t\tusage: dd <address> <num>\n"
                 self.log(text)
 
             def cmd_clear(self,args=[]): # clear the output box
@@ -1635,9 +1638,36 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                 self.owner.unicornEngine.mu.mem_write(address, struct.pack("<L",dword))
                 self.log("Wrote dword 0x%x to 0x%lx" % (dword,address))
 
+            def cmd_dump_dwords(self,args=[]): # dump x dwords from address
+                if not self.owner.unicornEngine.is_active():
+                    self.log("Emulator is not active")
+                    return
+
+                if self.owner.unicornEngine.is_running():
+                    self.log("Emulator is not running")
+                    return
+
+                if(len(args) != 3):
+                    self.log("usage: dd <0xaddress> <0xnumber>")
+                    return
+
+                address = int(args[1],16)
+                num = int(args[2],16)     
+
+                line = ""
+                for i in xrange(0,num):
+                    line += ("0x%lx" % struct.unpack("<L",uEmu.unicornEngine.mu.mem_read(address,4)))
+                    line += " "
+                    address += 4 # next
+                    if(not(i % 4)): 
+                        self.log(line)
+                        line =""
+                self.log(line)
+                    
+
             def SubmitCommand(self):
-                cmd = self.prompt.text()
-                self.prompt.setText("")
+                cmd = self.prompt.lineEdit().text()
+                self.prompt.lineEdit().setText("")
                 cmdarr = []
                 if(cmd.find(" ")):
                     cmdarr = cmd.split(" ")
@@ -1656,7 +1686,8 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                     "showpc": self.cmd_showpc,
                     "mem"   : self.cmd_get_mapped_memory,
                     "mm"    : self.cmd_map_memory,
-                    "wd"    : self.cmd_write_dword
+                    "wd"    : self.cmd_write_dword,
+                    "dd"    : self.cmd_dump_dwords
                 }
                 if(cmddispatch.has_key(cmdarr[0])):
                     cmddispatch[cmdarr[0]](cmdarr) # dispatch menu item
