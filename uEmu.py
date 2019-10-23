@@ -1562,6 +1562,7 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                 text += "\t\tusage: wd <address> <dword>\n"
                 text += "\tdd     - dump dwords from memory\n"
                 text += "\t\tusage: dd <address> <num>\n"
+                text += "\trr     - read registers\n"
                 self.log(text)
 
             def cmd_clear(self,args=[]): # clear the output box
@@ -1572,7 +1573,23 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                 self.owner.emu_run()
 
             def cmd_step(self,args=[]): # single step
-                self.log("Stepping\n")
+                if not self.owner.unicornEngine.is_active():
+                    self.log("Emulator is not active")
+                    return
+
+                if self.owner.unicornEngine.is_running():
+                    self.log("Emulator is not running")
+                    return
+
+                address = self.owner.unicornEngine.pc
+                context = self.owner.unicornEngine.mu
+                arch = UEMU_HELPERS.get_arch()
+                if arch == "":
+                    return
+                
+                self.log("Stepping: ")
+                self.log(COLSTR(UEMU_HELPERS.trim_spaces(IDAAPI_GetDisasm(address, 0)), SCOLOR_INSN))
+                
                 self.owner.emu_step()
             
             def cmd_start(self,args=[]): # start emulator
@@ -1663,7 +1680,58 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                         self.log(line)
                         line =""
                 self.log(line)
-                    
+
+            def cmd_read_registers(self,args=[]):
+                if not self.owner.unicornEngine.is_active():
+                    self.log("Emulator is not active")
+                    return
+
+                if self.owner.unicornEngine.is_running():
+                    self.log("Emulator is not running")
+                    return
+
+                address = self.owner.unicornEngine.pc
+                context = self.owner.unicornEngine.mu
+                arch = UEMU_HELPERS.get_arch()
+                if arch == "":
+                    return
+
+
+                hdr_title = COLSTR("  CPU context at [ ", SCOLOR_AUTOCMT)
+                hdr_title += COLSTR("0x%X: " % address, SCOLOR_DREF)
+                hdr_title += COLSTR(UEMU_HELPERS.trim_spaces(IDAAPI_GetDisasm(address, 0)), SCOLOR_INSN)
+                hdr_title += COLSTR(" ]", SCOLOR_AUTOCMT)
+                self.log(hdr_title)
+                self.log("")
+
+                regList = UEMU_HELPERS.get_register_map(arch)
+                reg_cnt = len(regList)
+                cols = 2
+                lines = reg_cnt/cols if reg_cnt%cols==0 else (reg_cnt/cols) + 1
+                line = ""
+                for i in range(lines):
+                    if i != 0:
+                        self.log(line)
+                        line = ""
+
+                    for j in xrange(i, reg_cnt, lines):
+                        reg_label = regList[j][0]
+                        reg_key = regList[j][1]
+
+                        line = line + COLSTR(" %4s: " % str(reg_label), SCOLOR_REG)
+
+                        currentValue = context.reg_read(reg_key)
+
+                        if ph.flag & PR_USE64:
+                            value_format = "0x%.16X"
+                        else:
+                            value_format = "0x%.8X"
+
+                        line += COLSTR(str(value_format % currentValue), SCOLOR_NUMBER)
+                        line = line.ljust(35 * ((j/lines) + 1))
+
+                self.log(line)
+                   
 
             def SubmitCommand(self):
                 cmd = self.prompt.lineEdit().text()
@@ -1687,7 +1755,8 @@ class uEmuPlugin(plugin_t, UI_Hooks):
                     "mem"   : self.cmd_get_mapped_memory,
                     "mm"    : self.cmd_map_memory,
                     "wd"    : self.cmd_write_dword,
-                    "dd"    : self.cmd_dump_dwords
+                    "dd"    : self.cmd_dump_dwords,
+                    "rr"    : self.cmd_read_registers
                 }
                 if(cmddispatch.has_key(cmdarr[0])):
                     cmddispatch[cmdarr[0]](cmdarr) # dispatch menu item
