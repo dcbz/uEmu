@@ -1673,7 +1673,7 @@ class uEmuPlugin(plugin_t, UI_Hooks):
 
                 line = ""
                 for i in xrange(0,num):
-                    line += ("0x%lx" % struct.unpack("<L",uEmu.unicornEngine.mu.mem_read(address,4)))
+                    line += ("%08lx" % struct.unpack("<L",self.owner.unicornEngine.mu.mem_read(address,4)))
                     line += " "
                     address += 4 # next
                     if(not(i % 4)): 
